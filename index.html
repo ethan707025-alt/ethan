@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#101b25" />
+  <meta name="description" content="免費雙人線上五子棋，建立房間、分享六位對局代碼、即時對戰。" />
+  <title>五子棋 · 雙人連線對戰</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0c1721; --surface:#162633; --soft:#223541; --line:rgba(226,241,238,.13); --text:#f6f5ed; --muted:#a8b9bc; --accent:#eacb86; --accent2:#f4dfb1; --green:#83d5b1; --red:#fa9e9b; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; color:var(--text); font-family:system-ui,-apple-system,"Noto Sans TC","Microsoft JhengHei",sans-serif; background: radial-gradient(circle at 14% 6%,#254354 0,transparent 35%),radial-gradient(circle at 90% 88%,#1c323f 0,transparent 33%),var(--bg); }
+    body::before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.13; background-image:radial-gradient(#b3c8c8 0.65px, transparent 0.65px); background-size:23px 23px; }
+    button,input { font:inherit; }
+    button { cursor:pointer; }
+    button:focus-visible,input:focus-visible { outline:2px solid #ffd785; outline-offset:3px; }
+    .shell { width:min(1080px,calc(100% - 36px)); margin:0 auto; padding:26px 0 48px; position:relative; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; padding-bottom:35px; gap:12px; }
+    .brand { display:flex; align-items:center; gap:12px; font-weight:760; letter-spacing:.06em; font-size:17px; }
+    .brandmark { position:relative; width:34px; height:34px; border-radius:10px; background:linear-gradient(135deg,#efd79e,#aa793b); display:grid; place-items:center; box-shadow:0 4px 16px #0003; }
+    .brandmark::before,.brandmark::after { content:""; border-radius:50%; position:absolute; width:13px;height:13px; }
+    .brandmark::before { background:#172330; left:7px; top:7px; box-shadow:inset -2px -2px 3px #0006; }
+    .brandmark::after { background:#fff6e6; right:7px; bottom:7px; box-shadow:0 2px 3px #0005; }
+    .topright { color:var(--muted); font-size:12px; letter-spacing:.14em; }
+    .home { min-height:calc(100vh - 145px); display:grid; grid-template-columns:1.05fr .95fr; align-items:center; gap:48px; }
+    .eyebrow { color:var(--accent); font-size:12px; font-weight:740; letter-spacing:.24em; margin-bottom:17px; }
+    h1 { margin:0; font-size:clamp(49px,6.4vw,91px); line-height:1.09; font-weight:820; letter-spacing:.045em; }
+    h1 .light { color:var(--accent); }
+    .subtitle { font-size:17px; color:#c0cdd0; line-height:1.9; margin:24px 0 31px; max-width:445px; }
+    .pills { display:flex; flex-wrap:wrap; gap:9px; }
+    .pill { font-size:12px; color:#cbd7d6; border:1px solid var(--line); background:#ffffff06; border-radius:30px; padding:8px 12px; }
+    .panel { background:linear-gradient(155deg,#1b2e3c,#14232f); border:1px solid rgba(255,255,255,.12); border-radius:24px; padding:32px; box-shadow:0 30px 90px #0005; position:relative; overflow:hidden; }
+    .panel:before { content:""; position:absolute; width:220px; height:220px; border-radius:50%; background:#efcd8d12; right:-115px; top:-120px; pointer-events:none; }
+    .panel-title { font-size:25px; font-weight:760; margin:0 0 8px; }
+    .panel-desc { color:var(--muted); font-size:14px; line-height:1.7; margin:0 0 23px; }
+    .action { width:100%; border-radius:13px; min-height:54px; border:0; padding:13px 18px; display:flex; align-items:center; justify-content:space-between; gap:10px; font-weight:760; font-size:15px; transition:transform .15s,background .15s; }
+    .action:hover:not(:disabled) { transform:translateY(-1px); }
+    .action:disabled { opacity:.55; cursor:not-allowed; }
+    .primary { background:var(--accent); color:#202a2d; }
+    .primary:hover:not(:disabled) { background:#f8dfa8; }
+    .secondary { background:#293d4a; border:1px solid #3b505d; color:#f5f4ed; }
+    .secondary:hover:not(:disabled) { background:#334955; }
+    .ghost { color:#bed1d1; background:transparent; border:1px solid var(--line); }
+    .ghost:hover:not(:disabled) { background:#ffffff0b; }
+    .divider-label { display:flex; align-items:center; gap:15px; color:#81969e; font-size:12px; margin:22px 0; }
+    .divider-label:before,.divider-label:after { content:""; flex:1; height:1px; background:var(--line); }
+    .footnote { color:#728b95; font-size:12px; margin-top:25px; line-height:1.65; text-align:center; }
+    .back { border:0; background:none; color:var(--muted); padding:0; margin-bottom:27px; font-size:14px; }
+    .back:hover { color:white; }
+    .label { color:#d4e1df; font-size:13px; font-weight:670; display:block; margin:22px 0 11px; }
+    .color-choices { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .choice { display:flex; align-items:center; text-align:left; gap:12px; border:1.5px solid #39505c; padding:16px 13px; border-radius:13px; background:#172b38; color:white; }
+    .choice.selected { border-color:var(--accent); background:#eacc8515; box-shadow:0 0 0 1px #eacc8555 inset; }
+    .stone { display:inline-block; width:25px; height:25px; border-radius:50%; flex-shrink:0; }
+    .stone.black { background:radial-gradient(circle at 30% 23%,#677077,#16222a 52%,#050b11 90%); box-shadow:2px 3px 7px #0009,inset 0 1px 2px #ffffff70; }
+    .stone.white { background:radial-gradient(circle at 30% 23%,#ffffff,#f0ebdf 58%,#b3ac9f 100%); box-shadow:2px 3px 7px #0007,inset 0 1px 3px #fff; }
+    .choice strong { display:block; font-size:15px; }
+    .choice small { display:block; margin-top:4px; font-size:12px; color:#a0b2b7; }
+    .choice.selected small { color:#c8bda5; }
+    .form-input { display:block; width:100%; background:#0f202b; border:1.5px solid #39505c; color:white; border-radius:12px; outline:none; padding:17px 16px; font-size:21px; font-weight:720; letter-spacing:.22em; text-align:center; text-transform:uppercase; }
+    .form-input:focus { border-color:var(--accent); }
+    .form-input::placeholder { letter-spacing:.04em; font-weight:400; color:#718a96; font-size:15px; }
+    .warn { color:#ffc19c; min-height:21px; font-size:13px; margin-top:11px; }
+    .busy { display:inline-block; width:15px; height:15px; border:2px solid #202a2d4d; border-top-color:#202a2d; border-radius:50%; animation:spin .8s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .game-layout { display:grid; grid-template-columns:minmax(0,1fr) 295px; gap:28px; align-items:start; }
+    .game-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px; }
+    .game-head h2 { margin:0; font-size:27px; letter-spacing:.05em; }
+    .game-head small { color:#9bb0b3; font-size:12px; }
+    .board-wrap { padding:13px; border:1px solid #d6b77b77; background:#1d303c; border-radius:19px; box-shadow:0 22px 45px #0005; }
+    #board { display:block; width:100%; aspect-ratio:1 / 1; border-radius:9px; touch-action:manipulation; cursor:crosshair; }
+    .board-caption { display:flex; justify-content:space-between; align-items:center; color:#91a6a9; font-size:12px; margin:15px 4px; gap:10px; }
+    .side-card { border:1px solid var(--line); border-radius:18px; background:#172a37dd; padding:20px; margin-bottom:15px; }
+    .section-cap { color:#97acaf; font-size:11px; letter-spacing:.16em; font-weight:750; margin:0 0 12px; }
+    .code-box { background:#0e202c; border:1px dashed #56717e; border-radius:11px; padding:15px 8px; font-size:29px; font-weight:820; letter-spacing:.16em; color:var(--accent2); text-align:center; font-variant-numeric:tabular-nums; user-select:all; }
+    .small-action { border:1px solid #3d5862; color:#d7e4e3; border-radius:9px; background:#253a47; padding:11px; font-size:13px; font-weight:700; }
+    .small-action:hover { background:#304956; }
+    .small-action:disabled { opacity:.45; cursor:not-allowed; }
+    .btnrow { display:flex; gap:8px; margin-top:10px; }
+    .btnrow button { flex:1; }
+    .status-box { display:flex; gap:12px; align-items:flex-start; }
+    .status-dot { background:#dfb66d; box-shadow:0 0 0 4px #dfb66d20; width:9px; height:9px; border-radius:50%; margin-top:7px; flex-shrink:0; }
+    .status-dot.online { background:var(--green); box-shadow:0 0 0 4px #83d5b120; }
+    .status-dot.error { background:var(--red); box-shadow:0 0 0 4px #fa9e9b20; }
+    .status-title { font-size:16px; font-weight:750; margin-bottom:5px; }
+    .status-help { color:#9fb3b9; font-size:12px; line-height:1.7; }
+    .players { display:flex; flex-direction:column; gap:10px; }
+    .player { display:flex; align-items:center; gap:11px; padding:10px 11px; border:1px solid #304852; border-radius:11px; background:#0e202c; }
+    .player.active { border-color:#deb96c; box-shadow:inset 0 0 0 1px #deb96c44; }
+    .player .stone { width:21px;height:21px; }
+    .player-name { flex:1; font-size:13px; font-weight:650; }
+    .player-name small { display:block; color:#90a5aa; margin-top:3px; font-size:11px; font-weight:400; }
+    .turn-indicator { color:var(--accent); font-size:11px; font-weight:750; }
+    .site-footer { color:#708992; font-size:12px; margin-top:26px; text-align:center; }
+    .hidden { display:none !important; }
+    .toast { position:fixed; bottom:23px; left:50%; transform:translate(-50%, 20px); padding:12px 18px; border-radius:10px; background:#fff5dc; color:#27333c; box-shadow:0 8px 30px #0007; font-size:14px; opacity:0; pointer-events:none; transition:opacity .25s,transform .25s; max-width:calc(100% - 30px); z-index:5; }
+    .toast.show { opacity:1;transform:translate(-50%,0); }
+    @media(max-width:780px){ .home { grid-template-columns:1fr; gap:30px; min-height:0; max-width:535px; margin:28px auto; } .home .hero { text-align:center; } .subtitle { margin:17px auto 21px; } .pills { justify-content:center; } .game-layout { grid-template-columns:minmax(0,1fr); } .game-side { display:grid; grid-template-columns:1fr 1fr; gap:14px; } .side-card { margin:0; } .side-card:last-child { grid-column:span 2; } .topbar { padding-bottom:20px; } }
+    @media(max-width:530px){ .shell { width:calc(100% - 24px); padding-top:17px; } .topright { font-size:10px; } .panel { padding:23px 20px; } .hero h1 { font-size:58px; } .game-head h2 { font-size:22px; } .game-side { grid-template-columns:1fr; gap:12px; } .side-card:last-child { grid-column:auto; } .board-wrap { padding:7px; border-radius:12px; } .game-layout { gap:15px; } .color-choices { gap:8px; } .choice { padding:13px 8px; } .choice .stone { width:22px;height:22px; } }
+    @media(prefers-reduced-motion:reduce){ *,*:before,*:after { transition:none!important; animation:none!important; } }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <div class="brand"><span class="brandmark" aria-hidden="true"></span> 五子棋 <span style="color:#738e95;font-size:12px;font-weight:450;letter-spacing:0">ONLINE</span></div>
+    <div class="topright">TWO PLAYERS · ONE BOARD</div>
+  </header>
+  <main>
+    <section id="home-view" class="home">
+      <div class="hero">
+        <div class="eyebrow">GOMOKU · 線上雙人對戰</div>
+        <h1>落子之間，<br><span class="light">一決高下。</span></h1>
+        <p class="subtitle">不用註冊，建立房間就能邀請朋友對弈。<br>一組對局代碼，開啟一場精彩的五子棋對戰。</p>
+        <div class="pills"><span class="pill">● 15 × 15 棋盤</span><span class="pill">● 即時雙人連線</span><span class="pill">● 免費免登入</span></div>
+      </div>
+      <div class="panel" id="menu-panel">
+        <section id="main-menu">
+          <h2 class="panel-title">開始對局</h2>
+          <p class="panel-desc">選擇你想要開始的方式。</p>
+          <button class="action primary" id="go-create"><span>＋　建立新棋局</span><span>↗</span></button>
+          <div class="divider-label">或是</div>
+          <button class="action secondary" id="go-join"><span>↳　加入朋友的棋局</span><span>→</span></button>
+          <div class="footnote">房主可以優先選擇執黑或執白，黑棋先行。</div>
+        </section>
+        <section id="create-menu" class="hidden">
+          <button class="back" id="back-from-create">← 返回</button>
+          <h2 class="panel-title">建立新棋局</h2>
+          <p class="panel-desc">由你決定要執黑棋還是白棋。</p>
+          <label class="label">選擇你的棋色</label>
+          <div class="color-choices" role="group" aria-label="選擇棋色">
+            <button class="choice selected" id="choose-black" aria-pressed="true"><span class="stone black"></span><span><strong>黑棋</strong><small>先手落子</small></span></button>
+            <button class="choice" id="choose-white" aria-pressed="false"><span class="stone white"></span><span><strong>白棋</strong><small>後手落子</small></span></button>
+          </div>
+          <button class="action primary" id="create-button" style="margin-top:27px"><span id="create-button-text">建立棋局</span><span id="create-button-icon">→</span></button>
+          <div id="create-error" class="warn" role="alert"></div>
+        </section>
+        <section id="join-menu" class="hidden">
+          <button class="back" id="back-from-join">← 返回</button>
+          <h2 class="panel-title">加入對局</h2>
+          <p class="panel-desc">請輸入朋友提供的 6 位英文或數字代碼。</p>
+          <label class="label" for="join-code">對局代碼</label>
+          <input id="join-code" class="form-input" placeholder="例如：K7P9XM" autocomplete="off" spellcheck="false" maxlength="6" aria-label="輸入六位對局代碼" />
+          <button class="action primary" id="join-button" style="margin-top:22px"><span id="join-button-text">加入棋局</span><span id="join-button-icon">→</span></button>
+          <div id="join-error" class="warn" role="alert"></div>
+        </section>
+      </div>
+    </section>
+    <section id="game-view" class="hidden">
+      <div class="game-head">
+        <div><div class="eyebrow" style="margin-bottom:7px">THE MATCH</div><h2>五子棋對戰</h2></div>
+        <button class="small-action" id="leave-button">← 離開棋局</button>
+      </div>
+      <div class="game-layout">
+        <div>
+          <div class="board-wrap"><canvas id="board" aria-label="15乘15五子棋棋盤，點擊交叉點落子"></canvas></div>
+          <div class="board-caption"><span>先連成五子者勝 · 黑棋先行</span><span id="move-count">已落子 0 手</span></div>
+        </div>
+        <aside class="game-side">
+          <div class="side-card">
+            <div class="section-cap">ROOM CODE · 對局代碼</div>
+            <div id="game-code" class="code-box">······</div>
+            <div class="btnrow"><button class="small-action" id="copy-code">複製代碼</button><button class="small-action" id="copy-link">複製邀請連結</button></div>
+            <p class="status-help" style="margin:11px 0 0">將代碼和這個網站分享給朋友，讓他加入。</p>
+          </div>
+          <div class="side-card">
+            <div class="section-cap">MATCH STATUS · 對戰狀態</div>
+            <div class="status-box"><span id="status-dot" class="status-dot"></span><div><div class="status-title" id="status-title">等待對手加入</div><div class="status-help" id="status-help">已建立棋局，請分享對局代碼。</div></div></div>
+          </div>
+          <div class="side-card">
+            <div class="section-cap">PLAYERS · 雙方棋手</div>
+            <div class="players">
+              <div id="player-black" class="player"><span class="stone black"></span><span class="player-name" id="black-name">黑棋<small id="black-role">先手</small></span><span class="turn-indicator" id="black-turn"></span></div>
+              <div id="player-white" class="player"><span class="stone white"></span><span class="player-name" id="white-name">白棋<small id="white-role">後手</small></span><span class="turn-indicator" id="white-turn"></span></div>
+            </div>
+            <button class="action ghost" style="margin-top:16px;min-height:43px;font-size:13px" id="rematch-button"><span>↻　重新開局</span><span>→</span></button>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+  <footer class="site-footer">GOMOKU ONLINE · 免註冊的雙人五子棋</footer>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" integrity="sha512-XEKeWX+mI3Ov+tg2evDlVQFzVOIp4T8J3cNcCEPaEUGpxJV3eZaN8rHuvnFPvQpGJBHPmrozJDMpm2xcDvtmyQ==" crossorigin="anonymous"></script>
+<script>
+(() => {
+  'use strict';
+  const N = 15;
+  const ROOM_PREFIX = 'gmk-chess-2026-';
+  const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const $ = id => document.getElementById(id);
+  let selectedColor = 'black', myColor = 'black', role = null, roomCode = '';
+  let peer = null, conn = null, connected = false, joining = false, busy = false, hover = null, toastTimeout = null;
+  let state = newGame(), frameRequested = false;
+  function newGame() { return { board:Array.from({length:N},()=>Array(N).fill(null)), turn:'black', winner:null, winningCells:[], last:null, moves:0 }; }
+  function showOnlyMenu(menu) { ['main-menu','create-menu','join-menu'].forEach(id=>$(id).classList.toggle('hidden', id!==menu)); $('create-error').textContent=''; $('join-error').textContent=''; }
+  function showGame() { $('home-view').classList.add('hidden'); $('game-view').classList.remove('hidden'); $('game-code').textContent=roomCode; window.scrollTo(0,0); drawSoon(); updateUI(); }
+  function showHome() { $('home-view').classList.remove('hidden'); $('game-view').classList.add('hidden'); showOnlyMenu('main-menu'); window.scrollTo(0,0); }
+  function setError(which,msg) { $(which+'-error').textContent=msg; }
+  function toast(msg) { clearTimeout(toastTimeout); const t=$('toast'); t.textContent=msg; t.classList.add('show'); toastTimeout=setTimeout(()=>t.classList.remove('show'),2600); }
+  function setLoading(which,on) { const b=$(which+'-button'); b.disabled=on; $(which+'-button-text').textContent=on?(which==='create'?'正在建立…':'正在連線…'):(which==='create'?'建立棋局':'加入棋局'); $(which+'-button-icon').innerHTML=on?'<span class="busy"></span>':'→'; }
+  function chooseColor(color) { selectedColor=color; ['black','white'].forEach(c=>{ $('choose-'+c).classList.toggle('selected',c===color); $('choose-'+c).setAttribute('aria-pressed',String(c===color)); }); }
+  function randomCode() { const values=new Uint32Array(6); crypto.getRandomValues(values); return Array.from(values, n=>CHARS[n%CHARS.length]).join(''); }
+  function resetPeer() { if(conn) { try { conn.close(); } catch(e) {} } if(peer) { try { peer.destroy(); } catch(e) {} } peer=null;conn=null;connected=false;joining=false;busy=false; }
+  function peerErrorDescription(err) { if(!err) return '連線發生問題，請稍後再試。'; switch(err.type) { case 'unavailable-id':return '代碼已被使用，請重新建立棋局。'; case 'peer-unavailable':return '找不到這個棋局，請確認代碼，且房主的頁面仍然開著。'; case 'network':case 'server-error':case 'socket-error':return '無法連上配對伺服器，請檢查網路後重試。'; default:return '連線失敗，請稍後再試。'; } }
+  function ensurePeerJS(which) { if(typeof Peer==='undefined') { setError(which,'無法載入連線功能。請檢查網路連線，並重新整理頁面。'); return false; } return true; }
+  function createRoom() {
+    if(busy || !ensurePeerJS('create')) return;
+    resetPeer(); busy=true; setLoading('create',true); setError('create','');
+    role='host'; myColor=selectedColor; state=newGame(); roomCode=randomCode();
+    const createdPeer = new Peer(ROOM_PREFIX+roomCode, {debug:0}); peer=createdPeer;
+    createdPeer.on('open',()=>{ if(peer!==createdPeer)return; busy=false;setLoading('create',false); showGame(); toast('棋局已建立，分享代碼給朋友吧！'); });
+    createdPeer.on('connection', incoming=>{
+      if(peer!==createdPeer) { incoming.close();return; }
+      if(conn) { incoming.on('open',()=>{incoming.send({type:'reject',reason:'此棋局已有兩位玩家。'});setTimeout(()=>incoming.close(),300);});return; }
+      conn=incoming;
+      incoming.on('open',()=>{
+        if(conn!==incoming)return;
+        connected=true; sendState(); updateUI(); toast('對手已加入棋局！');
+      });
+      incoming.on('data', data=>{
+        if(conn!==incoming || !connected || !data || typeof data!=='object')return;
+        if(data.type==='move' && Number.isInteger(data.x) && Number.isInteger(data.y)) { commitMove(data.x,data.y,otherColor(myColor)); }
+        else if(data.type==='rematch-request') {
+          if(window.confirm('對手希望重新開局，是否同意？')) { state=newGame(); sendState();updateUI();drawSoon();toast('新的一局開始！'); }
+        }
+      });
+      incoming.on('close',()=>{ if(conn===incoming) { connected=false;conn=null;updateUI();toast('對手已離線，可以等待重新加入。'); } });
+      incoming.on('error',()=>{ if(conn===incoming) { connected=false;conn=null;updateUI(); } });
+    });
+    createdPeer.on('error',err=>{
+      if(peer!==createdPeer)return;
+      if(!$('game-view').classList.contains('hidden')) { connected=false;updateUI();toast(peerErrorDescription(err)); }
+      else { setError('create',peerErrorDescription(err));busy=false;setLoading('create',false);resetPeer(); }
+    });
+    createdPeer.on('disconnected',()=>{ if(peer===createdPeer) { try { createdPeer.reconnect(); } catch(e) {} } });
+  }
+  function joinRoom() {
+    if(busy || !ensurePeerJS('join')) return;
+    const code=$('join-code').value.trim().toUpperCase();
+    if(!/^[A-HJ-NP-Z2-9]{6}$/.test(code)) { setError('join','請輸入正確的 6 位對局代碼。');return; }
+    resetPeer();busy=true;joining=true;setLoading('join',true);setError('join','');
+    role='guest';roomCode=code;state=newGame();
+    const createdPeer=new Peer({debug:0});peer=createdPeer;
+    let openTimeout=null;
+    createdPeer.on('open',()=>{
+      if(peer!==createdPeer)return;
+      const incoming=createdPeer.connect(ROOM_PREFIX+code,{reliable:true,serialization:'json'});
+      conn=incoming;
+      openTimeout=setTimeout(()=>{ if(joining && peer===createdPeer) failJoin('連線逾時，請確認房主仍在線上，然後重試。'); },15000);
+      incoming.on('open',()=>{ if(conn!==incoming)return;incoming.send({type:'hello'}); });
+      incoming.on('data',data=>{
+        if(conn!==incoming || !data || typeof data!=='object')return;
+        if(data.type==='reject') { failJoin(data.reason||'無法加入此房間。');return; }
+        if(data.type==='state' && validState(data.state) && (data.hostColor==='black'||data.hostColor==='white')) {
+          clearTimeout(openTimeout);state=data.state;myColor=otherColor(data.hostColor);
+          connected=true;busy=false;joining=false;setLoading('join',false);
+          if($('game-view').classList.contains('hidden')) { showGame();toast('已成功加入對局！'); }
+          else {updateUI();drawSoon();}
+        }
+      });
+      incoming.on('close',()=>{ if(conn!==incoming)return; if(joining)failJoin('連線已中斷，請確認對局代碼。');else {connected=false;updateUI();toast('與房主的連線已中斷。');} });
+      incoming.on('error',()=>{ if(joining)failJoin('無法加入房間，請確認房主仍在線上。'); });
+    });
+    createdPeer.on('error',err=>{ if(peer!==createdPeer)return; if(joining)failJoin(peerErrorDescription(err));else { connected=false;updateUI();toast(peerErrorDescription(err)); } });
+    createdPeer.on('disconnected',()=>{ if(peer===createdPeer) { try { createdPeer.reconnect(); } catch(e) {} } });
+    function failJoin(msg) {clearTimeout(openTimeout);if(!joining)return; setError('join',msg);setLoading('join',false);resetPeer();}
+  }
+  function validState(s) {
+    return s && Array.isArray(s.board) && s.board.length===N && s.board.every(row=>Array.isArray(row)&&row.length===N&&row.every(v=>v===null||v==='black'||v==='white')) &&
+      ['black','white'].includes(s.turn) && (s.winner===null||['black','white','draw'].includes(s.winner)) &&
+      Array.isArray(s.winningCells) && Number.isInteger(s.moves) && s.moves>=0 && s.moves<=225;
+  }
+  function otherColor(c){return c==='black'?'white':'black';}
+  function sendState(){ if(role==='host' && conn && conn.open)conn.send({type:'state',state,hostColor:myColor}); }
+  function commitMove(x,y,color) {
+    if(role!=='host' || !connected || state.winner || state.turn!==color || x<0||x>=N||y<0||y>=N||state.board[y][x]) return false;
+    state.board[y][x]=color;state.last={x,y};state.moves++;
+    const win=lineOfFive(x,y,color);
+    if(win) {state.winner=color;state.winningCells=win;}
+    else if(state.moves===N*N)state.winner='draw';
+    else state.turn=otherColor(color);
+    sendState();updateUI();drawSoon();
+    if(state.winner==='black'||state.winner==='white')toast(state.winner===myColor?'恭喜你，五子連線獲勝！':'對手五子連線獲勝！');
+    else if(state.winner==='draw')toast('平手！');
+    return true;
+  }
+  function lineOfFive(x,y,color) {
+    for(const [dx,dy] of [[1,0],[0,1],[1,1],[1,-1]]) {
+      const points=[{x,y}];
+      for(const sign of [-1,1]) {let xx=x+dx*sign, yy=y+dy*sign;while(xx>=0&&xx<N&&yy>=0&&yy<N&&state.board[yy][xx]===color) {points.push({x:xx,y:yy});xx+=dx*sign;yy+=dy*sign;}}
+      if(points.length>=5)return points;
+    }
+    return null;
+  }
+  function tryMove(x,y) {
+    if(!connected || state.winner || state.turn!==myColor || state.board[y]?.[x]!==null) return;
+    if(role==='host') commitMove(x,y,myColor);
+    else if(conn && conn.open) { conn.send({type:'move',x,y}); }
+  }
+  function updateUI() {
+    const waiting=!connected;let title,help,dot='';
+    if(waiting) { title=role==='host'?'等待對手加入':'對手已離線'; help=role==='host'?'分享上方代碼，等朋友加入後就能開始。':'與房主的連線中斷，請重新加入房間。';dot=role==='host'?'':'error'; }
+    else if(state.winner) {dot='online'; title=state.winner==='draw'?'平手！':state.winner===myColor?'你獲勝了！':'對手獲勝！';help=state.winner==='draw'?'棋盤已下滿。':'五顆同色棋子連成一線，對局結束。'; }
+    else {dot='online';title=state.turn===myColor?'輪到你下棋':'等待對手落子';help=state.turn===myColor?'選擇棋盤上的交叉點落子。':'對手思考中，請稍候。'; }
+    $('status-title').textContent=title;$('status-help').textContent=help;$('status-dot').className='status-dot '+dot;
+    for(const color of ['black','white']) {
+      const self=myColor===color;
+      $(color+'-role').textContent=self?'你 · '+(color==='black'?'先手':'後手'):'對手 · '+(color==='black'?'先手':'後手');
+      $(color+'-turn').textContent=connected && !state.winner && state.turn===color?'● 落子中':'';
+      $('player-'+color).classList.toggle('active',connected&&!state.winner&&state.turn===color);
+    }
+    $('move-count').textContent='已落子 '+state.moves+' 手';
+    $('rematch-button').disabled=!connected;
+  }
+  function drawSoon() { if(frameRequested)return; frameRequested=true;requestAnimationFrame(()=>{frameRequested=false;drawBoard();}); }
+  function boardMetrics() { const c=$('board'), s=c.getBoundingClientRect().width;const p=s*.063;return {s,p,step:(s-2*p)/(N-1)}; }
+  function drawBoard() {
+    if($('game-view').classList.contains('hidden'))return;
+    const c=$('board'),{s,p,step}=boardMetrics(); if(!s)return;
+    const dpr=window.devicePixelRatio||1;
+    if(c.width!==Math.round(s*dpr)||c.height!==Math.round(s*dpr)){c.width=Math.round(s*dpr);c.height=Math.round(s*dpr);}
+    const ctx=c.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,s,s);
+    const wood=ctx.createLinearGradient(0,0,s,s);wood.addColorStop(0,'#e6c68d');wood.addColorStop(.54,'#d7af72');wood.addColorStop(1,'#bf965c');ctx.fillStyle=wood;ctx.fillRect(0,0,s,s);
+    ctx.globalAlpha=.08;for(let i=0;i<14;i++){ctx.strokeStyle=i%2?'#fff':'#704728';ctx.lineWidth=Math.max(1,s*.002);ctx.beginPath();ctx.moveTo(0,(i+.5)*s/14);ctx.bezierCurveTo(s*.26,i*s/14,s*.7,(i+1)*s/14,s,(i+.3)*s/14);ctx.stroke();}ctx.globalAlpha=1;
+    ctx.strokeStyle='#644a32';ctx.lineWidth=Math.max(.8,s*.0017);ctx.beginPath();for(let i=0;i<N;i++){const v=p+step*i;ctx.moveTo(p,v);ctx.lineTo(s-p,v);ctx.moveTo(v,p);ctx.lineTo(v,s-p);}ctx.stroke();
+    const dotRadius=Math.max(2,s*.004);ctx.fillStyle='#574231';for(const yy of [3,7,11])for(const xx of [3,7,11]){ctx.beginPath();ctx.arc(p+xx*step,p+yy*step,dotRadius,0,Math.PI*2);ctx.fill();}
+    if(state.winningCells?.length){ctx.fillStyle='#f5e46e77';for(const q of state.winningCells){ctx.beginPath();ctx.arc(p+q.x*step,p+q.y*step,step*.49,0,Math.PI*2);ctx.fill();}}
+    for(let y=0;y<N;y++)for(let x=0;x<N;x++){const piece=state.board[y][x];if(piece)drawStone(ctx,p+x*step,p+y*step,step*.43,piece);}
+    if(state.last) {const x=p+state.last.x*step,y=p+state.last.y*step;ctx.beginPath();ctx.arc(x,y,step*.095,0,Math.PI*2);ctx.fillStyle=state.board[state.last.y][state.last.x]==='black'?'#e9c97f':'#b34839';ctx.fill();}
+    if(hover&&connected&&!state.winner&&state.turn===myColor&&state.board[hover.y]?.[hover.x]===null){ctx.globalAlpha=.44;drawStone(ctx,p+hover.x*step,p+hover.y*step,step*.43,myColor);ctx.globalAlpha=1;}
+  }
+  function drawStone(ctx,x,y,r,color){
+    ctx.save();ctx.shadowColor='#2c1a10a8';ctx.shadowBlur=r*.38;ctx.shadowOffsetY=r*.18;
+    const g=ctx.createRadialGradient(x-r*.33,y-r*.42,r*.02,x+r*.13,y+r*.2,r*1.65);
+    if(color==='black'){g.addColorStop(0,'#6d7477');g.addColorStop(.3,'#273039');g.addColorStop(.72,'#10191e');g.addColorStop(1,'#03070c');}
+    else{g.addColorStop(0,'#ffffff');g.addColorStop(.55,'#f6f1e7');g.addColorStop(.84,'#d5caba');g.addColorStop(1,'#a89c88');}
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();ctx.restore();
+    ctx.beginPath();ctx.arc(x-r*.19,y-r*.2,r*.65,Math.PI*1.1,Math.PI*1.55);ctx.lineWidth=Math.max(.5,r*.08);ctx.strokeStyle=color==='black'?'#ffffff19':'#ffffffaa';ctx.stroke();
+  }
+  function eventPoint(e) {const rect=$('board').getBoundingClientRect(),{p,step}=boardMetrics();const x=Math.round((e.clientX-rect.left-p)/step),y=Math.round((e.clientY-rect.top-p)/step);if(x<0||x>=N||y<0||y>=N)return null;const px=e.clientX-rect.left,py=e.clientY-rect.top;if(Math.hypot(px-(p+x*step),py-(p+y*step))>step*.57)return null;return {x,y};}
+  $('board').addEventListener('pointermove',e=>{if(e.pointerType==='touch')return;const h=eventPoint(e);if(h?.x!==hover?.x||h?.y!==hover?.y){hover=h;drawSoon();}});
+  $('board').addEventListener('pointerleave',()=>{hover=null;drawSoon();});
+  $('board').addEventListener('pointerdown',e=>{if(e.button!==0)return;const p=eventPoint(e);if(p)tryMove(p.x,p.y);});
+  $('go-create').addEventListener('click',()=>showOnlyMenu('create-menu'));
+  $('go-join').addEventListener('click',()=>{showOnlyMenu('join-menu');$('join-code').focus();});
+  $('back-from-create').addEventListener('click',()=>showOnlyMenu('main-menu'));
+  $('back-from-join').addEventListener('click',()=>showOnlyMenu('main-menu'));
+  $('choose-black').addEventListener('click',()=>chooseColor('black'));
+  $('choose-white').addEventListener('click',()=>chooseColor('white'));
+  $('create-button').addEventListener('click',createRoom);
+  $('join-button').addEventListener('click',joinRoom);
+  $('join-code').addEventListener('input',e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'');setError('join','');});
+  $('join-code').addEventListener('keydown',e=>{if(e.key==='Enter')joinRoom();});
+  $('leave-button').addEventListener('click',()=>{if(connected && !window.confirm('確定要離開這個棋局嗎？對局將無法繼續連線。'))return;resetPeer();roomCode='';role=null;state=newGame();showHome();});
+  $('rematch-button').addEventListener('click',()=>{
+    if(!connected)return;
+    if(role==='host'){if(!window.confirm('確定重新開局？目前的棋盤將會清空。'))return;state=newGame();sendState();updateUI();drawSoon();toast('新的一局開始！');}
+    else {conn.send({type:'rematch-request'});toast('已向房主提出重新開局的請求。');}
+  });
+  async function copyText(value){try{await navigator.clipboard.writeText(value);return true;}catch(e){const t=document.createElement('textarea');t.value=value;t.style.position='fixed';t.style.opacity='0';document.body.append(t);t.select();const ok=document.execCommand('copy');t.remove();return ok;}}
+  $('copy-code').addEventListener('click',async()=>toast(await copyText(roomCode)?'已複製對局代碼！':'請長按選取代碼複製。'));
+  $('copy-link').addEventListener('click',async()=>{
+    if(location.protocol==='file:') {toast('目前是本機檔案，請先將網頁部署上線再分享連結。');return;}
+    const u=new URL(location.href);u.searchParams.set('room',roomCode);u.hash='';toast(await copyText(u.href)?'已複製邀請連結！':'無法複製，請手動分享網址與代碼。');
+  });
+  window.addEventListener('resize',drawSoon);
+  const queryCode=(new URLSearchParams(location.search).get('room')||'').trim().toUpperCase();
+  if(/^[A-HJ-NP-Z2-9]{6}$/.test(queryCode)) {showOnlyMenu('join-menu');$('join-code').value=queryCode;}
+})();
+</script>
+</body>
+</html>
