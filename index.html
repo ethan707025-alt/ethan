@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#101b25" />
-  <meta name="description" content="免費雙人線上五子棋，建立房間、分享六位對局代碼、即時對戰。" />
+  <meta name="description" content="使用 MQTT 的免費雙人線上五子棋，建立房間、分享六位對局代碼，跨裝置即時對戰。" />
   <title>五子棋 · 雙人連線對戰</title>
   <style>
     :root { color-scheme: dark; --bg:#0c1721; --surface:#162633; --soft:#223541; --line:rgba(226,241,238,.13); --text:#f6f5ed; --muted:#a8b9bc; --accent:#eacb86; --accent2:#f4dfb1; --green:#83d5b1; --red:#fa9e9b; }
@@ -91,6 +91,8 @@
     .player-name { flex:1; font-size:13px; font-weight:650; }
     .player-name small { display:block; color:#90a5aa; margin-top:3px; font-size:11px; font-weight:400; }
     .turn-indicator { color:var(--accent); font-size:11px; font-weight:750; }
+    .broker-label { display:inline-block; font-size:11px; color:#95dbc0; margin-top:9px; letter-spacing:.06em; }
+    .broker-label.broker-offline {color:#fa9e9b;}
     .site-footer { color:#708992; font-size:12px; margin-top:26px; text-align:center; }
     .hidden { display:none !important; }
     .toast { position:fixed; bottom:23px; left:50%; transform:translate(-50%, 20px); padding:12px 18px; border-radius:10px; background:#fff5dc; color:#27333c; box-shadow:0 8px 30px #0007; font-size:14px; opacity:0; pointer-events:none; transition:opacity .25s,transform .25s; max-width:calc(100% - 30px); z-index:5; }
@@ -112,7 +114,7 @@
         <div class="eyebrow">GOMOKU · 線上雙人對戰</div>
         <h1>落子之間，<br><span class="light">一決高下。</span></h1>
         <p class="subtitle">不用註冊，建立房間就能邀請朋友對弈。<br>一組對局代碼，開啟一場精彩的五子棋對戰。</p>
-        <div class="pills"><span class="pill">● 15 × 15 棋盤</span><span class="pill">● 即時雙人連線</span><span class="pill">● 免費免登入</span></div>
+        <div class="pills"><span class="pill">● 15 × 15 棋盤</span><span class="pill">● MQTT 跨裝置對戰</span><span class="pill">● 免費免登入</span></div>
       </div>
       <div class="panel" id="menu-panel">
         <section id="main-menu">
@@ -121,7 +123,7 @@
           <button class="action primary" id="go-create"><span>＋　建立新棋局</span><span>↗</span></button>
           <div class="divider-label">或是</div>
           <button class="action secondary" id="go-join"><span>↳　加入朋友的棋局</span><span>→</span></button>
-          <div class="footnote">房主可以優先選擇執黑或執白，黑棋先行。</div>
+          <div class="footnote">房主可以優先選擇執黑或執白，黑棋先行。<br>使用公共 MQTT 測試伺服器，請勿傳送私人資料。</div>
         </section>
         <section id="create-menu" class="hidden">
           <button class="back" id="back-from-create">← 返回</button>
@@ -148,7 +150,7 @@
     </section>
     <section id="game-view" class="hidden">
       <div class="game-head">
-        <div><div class="eyebrow" style="margin-bottom:7px">THE MATCH</div><h2>五子棋對戰</h2></div>
+        <div><div class="eyebrow" style="margin-bottom:7px">THE MATCH</div><h2>五子棋對戰</h2><small id="broker-status" class="broker-label">MQTT · 已連線</small></div>
         <button class="small-action" id="leave-button">← 離開棋局</button>
       </div>
       <div class="game-layout">
@@ -179,109 +181,232 @@
       </div>
     </section>
   </main>
-  <footer class="site-footer">GOMOKU ONLINE · 免註冊的雙人五子棋</footer>
+  <footer class="site-footer">GOMOKU ONLINE · MQTT 即時連線 · 公共 Broker 測試版</footer>
 </div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" integrity="sha512-XEKeWX+mI3Ov+tg2evDlVQFzVOIp4T8J3cNcCEPaEUGpxJV3eZaN8rHuvnFPvQpGJBHPmrozJDMpm2xcDvtmyQ==" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.16.1/dist/mqtt.min.js"></script>
 <script>
 (() => {
   'use strict';
+  // 如要使用自己的 MQTT Broker，修改此 WSS 位址；雙方必須連到同一個 Broker。
+  const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
+  const TOPIC_ROOT = 'gomoku/mqtt/v3/rooms';
   const N = 15;
-  const ROOM_PREFIX = 'gmk-chess-2026-';
   const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const PEER_TTL = 30000;
   const $ = id => document.getElementById(id);
+  const ownId = randomToken(16);
   let selectedColor = 'black', myColor = 'black', role = null, roomCode = '';
-  let peer = null, conn = null, connected = false, joining = false, busy = false, hover = null, toastTimeout = null;
-  let state = newGame(), frameRequested = false;
-  function newGame() { return { board:Array.from({length:N},()=>Array(N).fill(null)), turn:'black', winner:null, winningCells:[], last:null, moves:0 }; }
-  function showOnlyMenu(menu) { ['main-menu','create-menu','join-menu'].forEach(id=>$(id).classList.toggle('hidden', id!==menu)); $('create-error').textContent=''; $('join-error').textContent=''; }
-  function showGame() { $('home-view').classList.add('hidden'); $('game-view').classList.remove('hidden'); $('game-code').textContent=roomCode; window.scrollTo(0,0); drawSoon(); updateUI(); }
-  function showHome() { $('home-view').classList.remove('hidden'); $('game-view').classList.add('hidden'); showOnlyMenu('main-menu'); window.scrollTo(0,0); }
-  function setError(which,msg) { $(which+'-error').textContent=msg; }
-  function toast(msg) { clearTimeout(toastTimeout); const t=$('toast'); t.textContent=msg; t.classList.add('show'); toastTimeout=setTimeout(()=>t.classList.remove('show'),2600); }
-  function setLoading(which,on) { const b=$(which+'-button'); b.disabled=on; $(which+'-button-text').textContent=on?(which==='create'?'正在建立…':'正在連線…'):(which==='create'?'建立棋局':'加入棋局'); $(which+'-button-icon').innerHTML=on?'<span class="busy"></span>':'→'; }
-  function chooseColor(color) { selectedColor=color; ['black','white'].forEach(c=>{ $('choose-'+c).classList.toggle('selected',c===color); $('choose-'+c).setAttribute('aria-pressed',String(c===color)); }); }
-  function randomCode() { const values=new Uint32Array(6); crypto.getRandomValues(values); return Array.from(values, n=>CHARS[n%CHARS.length]).join(''); }
-  function resetPeer() { if(conn) { try { conn.close(); } catch(e) {} } if(peer) { try { peer.destroy(); } catch(e) {} } peer=null;conn=null;connected=false;joining=false;busy=false; }
-  function peerErrorDescription(err) { if(!err) return '連線發生問題，請稍後再試。'; switch(err.type) { case 'unavailable-id':return '代碼已被使用，請重新建立棋局。'; case 'peer-unavailable':return '找不到這個棋局，請確認代碼，且房主的頁面仍然開著。'; case 'network':case 'server-error':case 'socket-error':return '無法連上配對伺服器，請檢查網路後重試。'; default:return '連線失敗，請稍後再試。'; } }
-  function ensurePeerJS(which) { if(typeof Peer==='undefined') { setError(which,'無法載入連線功能。請檢查網路連線，並重新整理頁面。'); return false; } return true; }
-  function createRoom() {
-    if(busy || !ensurePeerJS('create')) return;
-    resetPeer(); busy=true; setLoading('create',true); setError('create','');
-    role='host'; myColor=selectedColor; state=newGame(); roomCode=randomCode();
-    const createdPeer = new Peer(ROOM_PREFIX+roomCode, {debug:0}); peer=createdPeer;
-    createdPeer.on('open',()=>{ if(peer!==createdPeer)return; busy=false;setLoading('create',false); showGame(); toast('棋局已建立，分享代碼給朋友吧！'); });
-    createdPeer.on('connection', incoming=>{
-      if(peer!==createdPeer) { incoming.close();return; }
-      if(conn) { incoming.on('open',()=>{incoming.send({type:'reject',reason:'此棋局已有兩位玩家。'});setTimeout(()=>incoming.close(),300);});return; }
-      conn=incoming;
-      incoming.on('open',()=>{
-        if(conn!==incoming)return;
-        connected=true; sendState(); updateUI(); toast('對手已加入棋局！');
+  let client = null, brokerOnline = false, connected = false, joining = false, busy = false;
+  let guestId = null, hostSession = null, ownSession = null, lastSeen = 0, stateSeq = 0;
+  let joinTimeout = null, connectTimeout = null, heartbeatTimer = null;
+  let hover = null, toastTimeout = null, frameRequested = false;
+  let state = newGame();
+
+  function newGame() {return {board:Array.from({length:N},()=>Array(N).fill(null)),turn:'black',winner:null,winningCells:[],last:null,moves:0};}
+  function showOnlyMenu(menu) {['main-menu','create-menu','join-menu'].forEach(id=>$(id).classList.toggle('hidden',id!==menu));$('create-error').textContent='';$('join-error').textContent='';}
+  function showGame() {$('home-view').classList.add('hidden');$('game-view').classList.remove('hidden');$('game-code').textContent=roomCode;window.scrollTo(0,0);drawSoon();updateUI();}
+  function showHome() {$('home-view').classList.remove('hidden');$('game-view').classList.add('hidden');showOnlyMenu('main-menu');window.scrollTo(0,0);}
+  function setError(which,msg) {$(which+'-error').textContent=msg;}
+  function toast(msg) {clearTimeout(toastTimeout);const t=$('toast');t.textContent=msg;t.classList.add('show');toastTimeout=setTimeout(()=>t.classList.remove('show'),2600);}
+  function setLoading(which,on) {$(which+'-button').disabled=on;$(which+'-button-text').textContent=on?(which==='create'?'正在連接 MQTT…':'正在加入房間…'):(which==='create'?'建立棋局':'加入棋局');$(which+'-button-icon').innerHTML=on?'<span class="busy"></span>':'→';}
+  function chooseColor(color) {selectedColor=color;['black','white'].forEach(c=>{$('choose-'+c).classList.toggle('selected',c===color);$('choose-'+c).setAttribute('aria-pressed',String(c===color));});}
+  function randomToken(count) {const values=new Uint32Array(count);crypto.getRandomValues(values);return Array.from(values,n=>CHARS[n%CHARS.length]).join('');}
+  function otherColor(c) {return c==='black'?'white':'black';}
+  function root() {return TOPIC_ROOT+'/'+roomCode;}
+  function toHostTopic() {return root()+'/to-host';}
+  function toGuestTopic(id) {return root()+'/to-guest/'+id;}
+  function clearTimers() {clearTimeout(joinTimeout);clearTimeout(connectTimeout);clearInterval(heartbeatTimer);joinTimeout=connectTimeout=heartbeatTimer=null;}
+
+  // 斷開舊房間，避免過期事件/前一次訂閱污染新棋局。
+  function resetMqtt(notify=false) {
+    const old=client, oldRole=role, oldGuestId=guestId, oldRoom=roomCode;
+    client=null;brokerOnline=false;connected=false;joining=false;busy=false;clearTimers();
+    if(old) {
+      if(notify && old.connected && oldRoom && oldRole) {
+        const topic=TOPIC_ROOT+'/'+oldRoom+(oldRole==='host'?'/to-guest/'+oldGuestId:'/to-host');
+        if(oldRole==='guest'||oldGuestId) {
+          const data=oldRole==='host'?{type:'host-left',session:ownSession,to:oldGuestId}:{type:'leave',from:ownId,session:hostSession};
+          try {old.publish(topic,JSON.stringify(data),{qos:1},()=>old.end(true));setTimeout(()=>{try{old.end(true);}catch(e){}},1000);}catch(e){try{old.end(true);}catch(err){}}
+        } else old.end(true);
+      } else {try{old.end(true);}catch(e){}}
+    }
+  }
+  function publish(topic,data) {
+    if(!client || !client.connected)return false;
+    try {client.publish(topic,JSON.stringify(data),{qos:1,retain:false});return true;} catch(err) {return false;}
+  }
+  function sendToHost(data) {return publish(toHostTopic(),{...data,from:ownId,session:hostSession});}
+  function sendToGuest(data,id=guestId) {if(!id)return false;return publish(toGuestTopic(id),{...data,to:id,session:ownSession});}
+  function validState(s) {
+    return s && Array.isArray(s.board)&&s.board.length===N&&s.board.every(row=>Array.isArray(row)&&row.length===N&&row.every(v=>v===null||v==='black'||v==='white'))&&
+      (s.turn==='black'||s.turn==='white')&&(s.winner===null||['black','white','draw'].includes(s.winner))&&Array.isArray(s.winningCells)&&s.winningCells.length<=225&&
+      Number.isInteger(s.moves)&&s.moves>=0&&s.moves<=N*N && (s.last===null||(s.last&&Number.isInteger(s.last.x)&&Number.isInteger(s.last.y)&&s.last.x>=0&&s.last.x<N&&s.last.y>=0&&s.last.y<N));
+  }
+
+  function setupMqtt(mode) {
+    if(typeof mqtt==='undefined' || typeof mqtt.connect!=='function') {setError(mode,'無法載入 MQTT.js。請確認網路正常並重新整理。');busy=false;joining=false;setLoading(mode,false);return;}
+    let current;
+    try {
+      current=mqtt.connect(BROKER_URL,{
+        clientId:'gomoku_'+randomToken(15),clean:true,keepalive:15,reconnectPeriod:2000,connectTimeout:10000,
+        protocolVersion:4,resubscribe:false,queueQoSZero:false
       });
-      incoming.on('data', data=>{
-        if(conn!==incoming || !connected || !data || typeof data!=='object')return;
-        if(data.type==='move' && Number.isInteger(data.x) && Number.isInteger(data.y)) { commitMove(data.x,data.y,otherColor(myColor)); }
-        else if(data.type==='rematch-request') {
-          if(window.confirm('對手希望重新開局，是否同意？')) { state=newGame(); sendState();updateUI();drawSoon();toast('新的一局開始！'); }
+    } catch(e) {setError(mode,'MQTT 連線初始化失敗。');busy=false;joining=false;setLoading(mode,false);return;}
+    client=current;
+    // 連線逾時給明確回饋，不讓按鈕永久停在載入中。
+    connectTimeout=setTimeout(()=>{
+      if(client!==current||!busy||brokerOnline)return;
+      failEntry(mode,'無法連上 MQTT Broker。請檢查網路，或稍後再試。');
+    },16000);
+    current.on('connect',()=>{
+      if(client!==current)return;
+      brokerOnline=true;clearTimeout(connectTimeout);connectTimeout=null;
+      const incoming=mode==='create'?toHostTopic():toGuestTopic(ownId);
+      current.subscribe(incoming,{qos:1},err=>{
+        if(client!==current)return;
+        if(err) {if(busy)failEntry(mode,'MQTT 訂閱失敗，請重試。');else {brokerOnline=false;connected=false;updateUI();}return;}
+        if(role==='host') {
+          if(busy) {busy=false;setLoading('create',false);showGame();toast('已連上 MQTT！把對局代碼分享給朋友。');}
+          else {connected=false;updateUI();}
+        } else {
+          // 新連線或重新連線後再發出 join，避免早於訂閱而漏掉 welcome。
+          connected=false;sendJoin();if(!busy)updateUI();
         }
       });
-      incoming.on('close',()=>{ if(conn===incoming) { connected=false;conn=null;updateUI();toast('對手已離線，可以等待重新加入。'); } });
-      incoming.on('error',()=>{ if(conn===incoming) { connected=false;conn=null;updateUI(); } });
     });
-    createdPeer.on('error',err=>{
-      if(peer!==createdPeer)return;
-      if(!$('game-view').classList.contains('hidden')) { connected=false;updateUI();toast(peerErrorDescription(err)); }
-      else { setError('create',peerErrorDescription(err));busy=false;setLoading('create',false);resetPeer(); }
+    current.on('message',(topic,payload)=>{
+      if(client!==current||!brokerOnline)return;
+      let message;
+      try {if(payload.length>25000)return;message=JSON.parse(payload.toString());}catch(e){return;}
+      if(!message||typeof message!=='object')return;
+      if(role==='host'&&topic===toHostTopic())onHostMessage(message);
+      else if(role==='guest'&&topic===toGuestTopic(ownId))onGuestMessage(message);
     });
-    createdPeer.on('disconnected',()=>{ if(peer===createdPeer) { try { createdPeer.reconnect(); } catch(e) {} } });
+    const offline=()=>{
+      if(client!==current)return;
+      brokerOnline=false;connected=false;
+      if(!$('game-view').classList.contains('hidden'))updateUI();
+    };
+    current.on('offline',offline);
+    current.on('close',offline);
+    current.on('error',err=>{
+      if(client!==current)return;
+      console.warn('MQTT:',err?.message||err);
+      if(!$('game-view').classList.contains('hidden'))updateUI();
+    });
+    heartbeatTimer=setInterval(heartbeat,3500);
+  }
+  function failEntry(mode,msg) {
+    resetMqtt(false);role=null;roomCode='';guestId=null;hostSession=null;ownSession=null;
+    setLoading(mode,false);setError(mode,msg);
+  }
+  function createRoom() {
+    if(busy)return;
+    resetMqtt(false);setError('create','');busy=true;setLoading('create',true);
+    role='host';myColor=selectedColor;roomCode=randomToken(6);ownSession=randomToken(20);
+    guestId=null;hostSession=null;lastSeen=0;stateSeq=0;state=newGame();
+    setupMqtt('create');
   }
   function joinRoom() {
-    if(busy || !ensurePeerJS('join')) return;
+    if(busy)return;
     const code=$('join-code').value.trim().toUpperCase();
-    if(!/^[A-HJ-NP-Z2-9]{6}$/.test(code)) { setError('join','請輸入正確的 6 位對局代碼。');return; }
-    resetPeer();busy=true;joining=true;setLoading('join',true);setError('join','');
-    role='guest';roomCode=code;state=newGame();
-    const createdPeer=new Peer({debug:0});peer=createdPeer;
-    let openTimeout=null;
-    createdPeer.on('open',()=>{
-      if(peer!==createdPeer)return;
-      const incoming=createdPeer.connect(ROOM_PREFIX+code,{reliable:true,serialization:'json'});
-      conn=incoming;
-      openTimeout=setTimeout(()=>{ if(joining && peer===createdPeer) failJoin('連線逾時，請確認房主仍在線上，然後重試。'); },15000);
-      incoming.on('open',()=>{ if(conn!==incoming)return;incoming.send({type:'hello'}); });
-      incoming.on('data',data=>{
-        if(conn!==incoming || !data || typeof data!=='object')return;
-        if(data.type==='reject') { failJoin(data.reason||'無法加入此房間。');return; }
-        if(data.type==='state' && validState(data.state) && (data.hostColor==='black'||data.hostColor==='white')) {
-          clearTimeout(openTimeout);state=data.state;myColor=otherColor(data.hostColor);
-          connected=true;busy=false;joining=false;setLoading('join',false);
-          if($('game-view').classList.contains('hidden')) { showGame();toast('已成功加入對局！'); }
-          else {updateUI();drawSoon();}
-        }
-      });
-      incoming.on('close',()=>{ if(conn!==incoming)return; if(joining)failJoin('連線已中斷，請確認對局代碼。');else {connected=false;updateUI();toast('與房主的連線已中斷。');} });
-      incoming.on('error',()=>{ if(joining)failJoin('無法加入房間，請確認房主仍在線上。'); });
-    });
-    createdPeer.on('error',err=>{ if(peer!==createdPeer)return; if(joining)failJoin(peerErrorDescription(err));else { connected=false;updateUI();toast(peerErrorDescription(err)); } });
-    createdPeer.on('disconnected',()=>{ if(peer===createdPeer) { try { createdPeer.reconnect(); } catch(e) {} } });
-    function failJoin(msg) {clearTimeout(openTimeout);if(!joining)return; setError('join',msg);setLoading('join',false);resetPeer();}
+    if(!/^[A-HJ-NP-Z2-9]{6}$/.test(code)){setError('join','請輸入正確的 6 位對局代碼。');return;}
+    resetMqtt(false);setError('join','');busy=true;joining=true;setLoading('join',true);
+    role='guest';roomCode=code;hostSession=null;ownSession=null;guestId=null;stateSeq=-1;lastSeen=0;state=newGame();
+    setupMqtt('join');
+    joinTimeout=setTimeout(()=>{
+      if(role==='guest'&&joining)failEntry('join','找不到房主或連線逾時。請確認代碼正確，且房主仍在線上。');
+    },18000);
   }
-  function validState(s) {
-    return s && Array.isArray(s.board) && s.board.length===N && s.board.every(row=>Array.isArray(row)&&row.length===N&&row.every(v=>v===null||v==='black'||v==='white')) &&
-      ['black','white'].includes(s.turn) && (s.winner===null||['black','white','draw'].includes(s.winner)) &&
-      Array.isArray(s.winningCells) && Number.isInteger(s.moves) && s.moves>=0 && s.moves<=225;
+  function sendJoin() {if(role==='guest'&&brokerOnline)sendToHost({type:'join'});}
+  function sendState() {
+    if(role==='host'&&guestId)sendToGuest({type:'state',state,hostColor:myColor,seq:stateSeq});
   }
-  function otherColor(c){return c==='black'?'white':'black';}
-  function sendState(){ if(role==='host' && conn && conn.open)conn.send({type:'state',state,hostColor:myColor}); }
+  function onHostMessage(m) {
+    if(typeof m.from!=='string'||!/^[A-HJ-NP-Z2-9]{16}$/.test(m.from)||m.from===ownId)return;
+    if(m.type==='join') {
+      if(guestId&&guestId!==m.from && Date.now()-lastSeen<PEER_TTL) {
+        sendToGuest({type:'reject',reason:'此棋局已有兩位玩家，請選擇其他房間。'},m.from);return;
+      }
+      if(guestId!==m.from) {guestId=m.from;connected=false;}
+      lastSeen=Date.now();
+      sendToGuest({type:'welcome',hostColor:myColor,state,seq:stateSeq});updateUI();return;
+    }
+    if(m.from!==guestId||m.session!==ownSession)return;
+    lastSeen=Date.now();
+    if(m.type==='ready'||m.type==='heartbeat') {
+      if(!connected){connected=true;updateUI();sendState();toast('對手已加入棋局！');}
+    } else if(m.type==='move') {
+      if(!connected)return;
+      if(Number.isInteger(m.x)&&Number.isInteger(m.y))commitMove(m.x,m.y,otherColor(myColor));
+    } else if(m.type==='rematch-request') {
+      if(!connected)return;
+      if(window.confirm('對手希望重新開局，是否同意？')) {
+        state=newGame();stateSeq++;sendState();updateUI();drawSoon();toast('新的一局開始！');
+      } else sendToGuest({type:'rematch-declined'});
+    } else if(m.type==='leave') {
+      guestId=null;connected=false;lastSeen=0;updateUI();toast('對手已離開棋局，你可以邀請新玩家加入。');
+    }
+  }
+  function onGuestMessage(m) {
+    if(m.to!==ownId)return;
+    if(m.type==='reject') {
+      if(joining)failEntry('join',String(m.reason||'無法加入這個房間。').slice(0,100));
+      else {connected=false;updateUI();toast('這個房間已經有其他玩家。');}
+      return;
+    }
+    if(m.type==='welcome') {
+      if(typeof m.session!=='string'||!/^[A-HJ-NP-Z2-9]{20}$/.test(m.session))return;
+      if(!validState(m.state)||!['black','white'].includes(m.hostColor)||!Number.isInteger(m.seq))return;
+      if(hostSession!==m.session) {hostSession=m.session;stateSeq=-1;}
+      if(m.seq>=stateSeq){state=m.state;stateSeq=m.seq;}
+      myColor=otherColor(m.hostColor);lastSeen=Date.now();connected=true;
+      if(joining) {
+        joining=false;busy=false;clearTimeout(joinTimeout);setLoading('join',false);
+        showGame();toast('已透過 MQTT 加入棋局！');
+      } else {updateUI();drawSoon();}
+      sendToHost({type:'ready'});return;
+    }
+    if(!hostSession||m.session!==hostSession)return;
+    if(m.type==='state') {
+      if(!validState(m.state)||!Number.isInteger(m.seq)||m.seq<stateSeq)return;
+      state=m.state;stateSeq=m.seq;lastSeen=Date.now();connected=true;
+      updateUI();drawSoon();
+      if(state.winner&&state.winner!==null&&state.moves>0) {
+        // 結果顯示於狀態區，不需在收到重送的狀態時重複彈窗。
+      }
+    } else if(m.type==='ping') {
+      lastSeen=Date.now();if(!connected){connected=true;updateUI();}
+      sendToHost({type:'heartbeat'});
+    } else if(m.type==='host-left') {
+      connected=false;lastSeen=0;updateUI();toast('房主已離開，這個棋局已結束。');
+    } else if(m.type==='rematch-declined')toast('房主暫時不想重新開局。');
+  }
+  function heartbeat() {
+    if(!client||!brokerOnline||!role)return;
+    const age=Date.now()-lastSeen;
+    if(role==='host') {
+      if(guestId&&age>PEER_TTL) {
+        guestId=null;connected=false;lastSeen=0;updateUI();toast('對手離線，房間已開放其他玩家加入。');
+      } else if(guestId)sendToGuest({type:'ping'});
+    } else {
+      if(connected&&age>PEER_TTL) {
+        connected=false;updateUI();toast('房主沒有回應，嘗試重新連線中…');
+      }
+      if(connected)sendToHost({type:'heartbeat'});
+      else sendJoin();
+    }
+  }
   function commitMove(x,y,color) {
-    if(role!=='host' || !connected || state.winner || state.turn!==color || x<0||x>=N||y<0||y>=N||state.board[y][x]) return false;
+    if(role!=='host'||!brokerOnline||!connected||state.winner||state.turn!==color||
+      !Number.isInteger(x)||!Number.isInteger(y)||x<0||x>=N||y<0||y>=N||state.board[y][x])return false;
     state.board[y][x]=color;state.last={x,y};state.moves++;
     const win=lineOfFive(x,y,color);
-    if(win) {state.winner=color;state.winningCells=win;}
+    if(win){state.winner=color;state.winningCells=win;}
     else if(state.moves===N*N)state.winner='draw';
     else state.turn=otherColor(color);
-    sendState();updateUI();drawSoon();
+    stateSeq++;sendState();updateUI();drawSoon();
     if(state.winner==='black'||state.winner==='white')toast(state.winner===myColor?'恭喜你，五子連線獲勝！':'對手五子連線獲勝！');
     else if(state.winner==='draw')toast('平手！');
     return true;
@@ -295,24 +420,26 @@
     return null;
   }
   function tryMove(x,y) {
-    if(!connected || state.winner || state.turn!==myColor || state.board[y]?.[x]!==null) return;
-    if(role==='host') commitMove(x,y,myColor);
-    else if(conn && conn.open) { conn.send({type:'move',x,y}); }
+    if(!brokerOnline||!connected||state.winner||state.turn!==myColor||state.board[y]?.[x]!==null)return;
+    if(role==='host')commitMove(x,y,myColor);
+    else if(role==='guest')sendToHost({type:'move',x,y});
   }
   function updateUI() {
     const waiting=!connected;let title,help,dot='';
-    if(waiting) { title=role==='host'?'等待對手加入':'對手已離線'; help=role==='host'?'分享上方代碼，等朋友加入後就能開始。':'與房主的連線中斷，請重新加入房間。';dot=role==='host'?'':'error'; }
-    else if(state.winner) {dot='online'; title=state.winner==='draw'?'平手！':state.winner===myColor?'你獲勝了！':'對手獲勝！';help=state.winner==='draw'?'棋盤已下滿。':'五顆同色棋子連成一線，對局結束。'; }
-    else {dot='online';title=state.turn===myColor?'輪到你下棋':'等待對手落子';help=state.turn===myColor?'選擇棋盤上的交叉點落子。':'對手思考中，請稍候。'; }
+    if(!brokerOnline){title='MQTT 連線中斷';help='正在重新連線到訊息伺服器，請保持頁面開啟。';dot='error';}
+    else if(waiting){title=role==='host'?'等待對手加入':'等待房主連線';help=role==='host'?'把代碼或邀請連結傳給朋友，讓對方加入。':'正在透過 MQTT 尋找房主，請保持頁面開啟。';dot=role==='host'?'':'error';}
+    else if(state.winner){dot='online';title=state.winner==='draw'?'平手！':state.winner===myColor?'你獲勝了！':'對手獲勝！';help=state.winner==='draw'?'棋盤已下滿。':'五顆同色棋子連成一線，對局結束。';}
+    else{dot='online';title=state.turn===myColor?'輪到你下棋':'等待對手落子';help=state.turn===myColor?'點選棋盤上的交叉點落子。':'對手思考中。';}
     $('status-title').textContent=title;$('status-help').textContent=help;$('status-dot').className='status-dot '+dot;
-    for(const color of ['black','white']) {
+    for(const color of ['black','white']){
       const self=myColor===color;
       $(color+'-role').textContent=self?'你 · '+(color==='black'?'先手':'後手'):'對手 · '+(color==='black'?'先手':'後手');
-      $(color+'-turn').textContent=connected && !state.winner && state.turn===color?'● 落子中':'';
+      $(color+'-turn').textContent=connected&&!state.winner&&state.turn===color?'● 落子中':'';
       $('player-'+color).classList.toggle('active',connected&&!state.winner&&state.turn===color);
     }
-    $('move-count').textContent='已落子 '+state.moves+' 手';
-    $('rematch-button').disabled=!connected;
+    $('move-count').textContent='已落子 '+state.moves+' 手';$('rematch-button').disabled=!connected||!brokerOnline;
+    $('broker-status').textContent='MQTT · '+(brokerOnline?'已連線':'重新連線中');
+    $('broker-status').classList.toggle('broker-offline',!brokerOnline);
   }
   function drawSoon() { if(frameRequested)return; frameRequested=true;requestAnimationFrame(()=>{frameRequested=false;drawBoard();}); }
   function boardMetrics() { const c=$('board'), s=c.getBoundingClientRect().width;const p=s*.063;return {s,p,step:(s-2*p)/(N-1)}; }
@@ -353,21 +480,28 @@
   $('join-button').addEventListener('click',joinRoom);
   $('join-code').addEventListener('input',e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'');setError('join','');});
   $('join-code').addEventListener('keydown',e=>{if(e.key==='Enter')joinRoom();});
-  $('leave-button').addEventListener('click',()=>{if(connected && !window.confirm('確定要離開這個棋局嗎？對局將無法繼續連線。'))return;resetPeer();roomCode='';role=null;state=newGame();showHome();});
+  $('leave-button').addEventListener('click',()=>{
+    if(connected&&!window.confirm('確定離開棋局嗎？離開後目前的對局將中斷。'))return;
+    resetMqtt(true);roomCode='';role=null;guestId=null;hostSession=null;ownSession=null;state=newGame();showHome();
+  });
   $('rematch-button').addEventListener('click',()=>{
-    if(!connected)return;
-    if(role==='host'){if(!window.confirm('確定重新開局？目前的棋盤將會清空。'))return;state=newGame();sendState();updateUI();drawSoon();toast('新的一局開始！');}
-    else {conn.send({type:'rematch-request'});toast('已向房主提出重新開局的請求。');}
+    if(!brokerOnline||!connected)return;
+    if(role==='host') {
+      if(!window.confirm('確定重新開局？目前棋盤將會清空。'))return;
+      state=newGame();stateSeq++;sendState();updateUI();drawSoon();toast('新的一局開始！');
+    } else {sendToHost({type:'rematch-request'});toast('已向房主提出重新開局請求。');}
   });
   async function copyText(value){try{await navigator.clipboard.writeText(value);return true;}catch(e){const t=document.createElement('textarea');t.value=value;t.style.position='fixed';t.style.opacity='0';document.body.append(t);t.select();const ok=document.execCommand('copy');t.remove();return ok;}}
   $('copy-code').addEventListener('click',async()=>toast(await copyText(roomCode)?'已複製對局代碼！':'請長按選取代碼複製。'));
   $('copy-link').addEventListener('click',async()=>{
-    if(location.protocol==='file:') {toast('目前是本機檔案，請先將網頁部署上線再分享連結。');return;}
-    const u=new URL(location.href);u.searchParams.set('room',roomCode);u.hash='';toast(await copyText(u.href)?'已複製邀請連結！':'無法複製，請手動分享網址與代碼。');
+    if(location.protocol==='file:'){toast('本機檔案沒有公開網址，請先將網站部署上線。');return;}
+    const u=new URL(location.href);u.searchParams.set('room',roomCode);u.hash='';
+    toast(await copyText(u.href)?'已複製邀請連結！':'無法複製，請手動分享網址與代碼。');
   });
   window.addEventListener('resize',drawSoon);
+  window.addEventListener('pagehide',()=>{resetMqtt(true);});
   const queryCode=(new URLSearchParams(location.search).get('room')||'').trim().toUpperCase();
-  if(/^[A-HJ-NP-Z2-9]{6}$/.test(queryCode)) {showOnlyMenu('join-menu');$('join-code').value=queryCode;}
+  if(/^[A-HJ-NP-Z2-9]{6}$/.test(queryCode)){showOnlyMenu('join-menu');$('join-code').value=queryCode;}
 })();
 </script>
 </body>
